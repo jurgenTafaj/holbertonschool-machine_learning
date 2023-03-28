@@ -7,7 +7,7 @@ import numpy as np
 
 def mean_cov(X):
     """
-    a function that calculates the mean 
+    a function that calculates the mean
     """
     if type(X) is not np.ndarray:
         raise TypeError("X must be a 2D numpy.ndarray")
