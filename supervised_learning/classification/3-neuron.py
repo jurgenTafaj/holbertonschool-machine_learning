@@ -1,5 +1,6 @@
-
-dule to create a neuron
+#!/usr/bin/env python3
+"""
+Module to create a neuron
 """
 import numpy as np
 
