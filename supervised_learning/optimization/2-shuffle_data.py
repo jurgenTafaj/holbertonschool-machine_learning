@@ -13,4 +13,3 @@ def shuffle_data(X, Y):
     Y_shuffled = Y[permutation]
 
     return X_shuffled, Y_shuffled
-
