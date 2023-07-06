@@ -32,4 +32,5 @@ def rnn(rnn_cell, X, h_0):
         h_next, y_next = rnn_cell.forward(h_prev=h_prev, x_t=x_t)
         H[i + 1] = h_next
         Y[i] = y_next
+    
     return H, Y
