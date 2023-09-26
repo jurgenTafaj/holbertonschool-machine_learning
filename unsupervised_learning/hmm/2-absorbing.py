@@ -1,39 +1,36 @@
 #!/usr/bin/env python3
-"""
-Determines if a markov chain is absorbing
-"""
+"""determines if a markov chain is absorbing:"""
 import numpy as np
 
 
 def absorbing(P):
-    """
-    Determines if a markov chain is absorbing
-    :param P: square 2D numpy.ndarray of shape (n, n) representing the
-    transition matrix
-    :return: True if it is absorbing, or False on failure
-    """
+    """determines if a markov chain is absorbing:"""
     if type(P) is not np.ndarray:
         return False
-    if len(P.shape) != 2:
+    if P.ndim != 2 or P.shape[0] != P.shape[1]:
         return False
-    n, n_t = P.shape
-    if n != n_t:
+    if not np.allclose(np.sum(P, axis=1), 1):
         return False
-    sum_test = np.sum(P, axis=1)
-    for elem in sum_test:
-        if not np.isclose(elem, 1):
-            return False
 
-    diagonal = np.diag(P)
-    if (diagonal == 1).all():
-        return True
-
-    absorb = (diagonal == 1)
-    for row in range(len(diagonal)):
-        for col in range(len(diagonal)):
-            if P[row, col] > 0 and absorb[col]:
-                absorb[row] = 1
-    if (absorb == 1).all():
+    n = P.shape[0]
+    i = 0
+    while P[i][i] == 1:
+        i += 1
+        if i == len(P):
+            return True
+    if i == 0:
+        return False
+    if (1 in np.max(P[i:, :], axis=0)) or (np.sum(P[:i, i:]) != 0):
+        return False
+    Q = P[i:, i:]
+    R = P[i:, :i]
+    t = Q.shape[0]
+    IQ = np.eye(t) - Q
+    if np.linalg.det(IQ) == 0:
+        return False
+    N = np.linalg.inv(IQ)
+    B = np.matmul(N, R)
+    if np.any(N * R == 0):
         return True
 
     return False
