@@ -1,77 +1,105 @@
 #!/usr/bin/env python3
 """
-Creates an autoencoder
+Defines function that creates a convolutional autoencoder
 """
 import tensorflow.keras as keras
 
 
-def autoencoder(input_dims, hidden_layers, latent_dims):
+def autoencoder(input_dims, filters, latent_dims):
     """
-    Creates an autoencoder
-    :param input_dims: an integer containing the dimensions of the model input
-    :param hidden_layers: a list containing the number of nodes for each
-    hidden layer in the encoder, respectively
-    :param latent_dims: an integer containing the dimensions of the latent
-    space representation
-    :return: encoder, decoder, auto
-        encoder is the encoder model
-        decoder is the decoder model
-        auto is the full autoencoder model
+    Creates a convolutional autoencoder
+        input_dims [tuple of ints]: contains the dimensions
+        of the model input
+        filters [list of ints]: contains the number of filters
+        for each convolutional layer
+                in the encoder
+                the filters should be reversed for the decoder
+        latent_dims [tuple of int]: contains the dimensions of
+        the latent space representation
+
+    Each convolution in the encoder should use kernel size of (3, 3) with
+        same padding and relu activation,
+        followed by max pooling of size (2, 2)
+    Each convolution in the decoder should use filter size of (3, 3) with
+        same padding and relu activation,
+        followed by upsampling of size (2, 2),
+        except last two:
+    Second to last convolution should instead use valid padding
+    Last convolution should have the same number of filters as the number of
+        channels in input_dims with sigmoid activation and no upsampling
+    Autoencoder model should be compiled with Adam optimization
+        and binary cross-entropy loss
+
+    returns: encoder, decoder, auto
+            encoder [model]: the encoder model
+            decoder [model]: the decoder model
+            auto [model]: full autoencoder model
+                compiled with adam optimization and binary cross-entropy loss
     """
-    input_encoder = keras.Input(shape=(input_dims, ))
-    input_decoder = keras.Input(shape=(latent_dims, ))
+    if type(input_dims) is not tuple:
+        raise TypeError(
+            "input_dims must be tuple of ints containing dimensions of \
+            model input")
+    for dim in input_dims:
+        if type(dim) is not int:
+            raise TypeError("input_dims must be tuple of ints containing \
+            dimensions of model input")
+    if type(filters) is not list:
+        raise TypeError("filters must be a list of ints \
+        representing number of filters for each convolutional layer")
+    for number_filter in filters:
+        if type(number_filter) is not int:
+            raise TypeError("filters must be a list of ints \
+            representing number of filters for each convolutional layer")
+    if type(latent_dims) is not tuple:
+        raise TypeError("latent_dims must be an int containing \
+        dimensions of latent space representation")
+    for dim in latent_dims:
+        if type(dim) is not int:
+            raise TypeError("latent_dims must be an int containing \
+            dimensions of latent space representation")
 
-    # Encoder model
-    encoded = keras.layers.Dense(hidden_layers[0],
-                                 activation='relu')(input_encoder)
-    for enc in range(1, len(hidden_layers)):
-        encoded = keras.layers.Dense(hidden_layers[enc],
-                                     activation='relu')(encoded)
+    encoder_inputs = keras.Input(shape=(input_dims))
+    encoder_value = encoder_inputs
+    for i in range(len(filters)):
+        encoder_layer = keras.layers.Conv2D(filters[i],
+                                            activation='relu',
+                                            kernel_size=(3, 3),
+                                            padding='same')
+        encoder_value = encoder_layer(encoder_value)
+        encoder_pooling_layer = keras.layers.MaxPooling2D((2, 2),
+                                                          padding='same')
+        encoder_value = encoder_pooling_layer(encoder_value)
+    encoder_outputs = encoder_value
+    encoder = keras.Model(inputs=encoder_inputs, outputs=encoder_outputs)
 
-    # Latent layer
-    z_mean = keras.layers.Dense(latent_dims, activation=None)(encoded)
-    z_log_sigma = keras.layers.Dense(latent_dims, activation=None)(encoded)
+    decoder_inputs = keras.Input(shape=(latent_dims))
+    decoder_value = decoder_inputs
+    for i in range(len(filters) - 1, 0, -1):
+        decoder_layer = keras.layers.Conv2D(filters[i],
+                                            activation='relu',
+                                            kernel_size=(3, 3),
+                                            padding='same')
+        decoder_value = decoder_layer(decoder_value)
+        decoder_upsample_layer = keras.layers.UpSampling2D((2, 2))
+        decoder_value = decoder_upsample_layer(decoder_value)
+    decoder_last_layer = keras.layers.Conv2D(filters[0],
+                                             kernel_size=(3, 3),
+                                             padding='valid',
+                                             activation='relu')
+    decoder_value = decoder_last_layer(decoder_value)
+    decoder_upsample_layer = keras.layers.UpSampling2D((2, 2))
+    decoder_value = decoder_upsample_layer(decoder_value)
+    decoder_output_layer = keras.layers.Conv2D(input_dims[2],
+                                               activation='sigmoid',
+                                               kernel_size=(3, 3),
+                                               padding='same')
+    decoder_outputs = decoder_output_layer(decoder_value)
+    decoder = keras.Model(inputs=decoder_inputs, outputs=decoder_outputs)
 
-    def sample_z(args):
-        """
-        Sampling function
-        """
-        mu, sigma = args
-        batch = keras.backend.shape(mu)[0]
-        dim = keras.backend.int_shape(mu)[1]
-        eps = keras.backend.random_normal(shape=(batch, dim))
-        return mu + keras.backend.exp(sigma / 2) * eps
-
-    z = keras.layers.Lambda(sample_z,
-                            output_shape=(latent_dims,))([z_mean, z_log_sigma])
-
-    encoder = keras.Model(inputs=input_encoder,
-                          outputs=[z, z_mean, z_log_sigma])
-
-    # Decoded model
-    decoded = keras.layers.Dense(hidden_layers[-1],
-                                 activation='relu')(input_decoder)
-    for dec in range(len(hidden_layers) - 2, -1, -1):
-        decoded = keras.layers.Dense(hidden_layers[dec],
-                                     activation='relu')(decoded)
-    last = keras.layers.Dense(input_dims, activation='sigmoid')(decoded)
-    decoder = keras.Model(inputs=input_decoder, outputs=last)
-
-    encoder_output = encoder(input_encoder)[0]
-    decoder_output = decoder(encoder_output)
-    auto = keras.Model(inputs=input_encoder, outputs=decoder_output)
-
-    def vae_loss(x, x_decoded_mean):
-        """
-        VAE loss function
-        """
-        xent_loss = keras.backend.binary_crossentropy(x, x_decoded_mean)
-        xent_loss = keras.backend.sum(xent_loss, axis=1)
-        kl_loss = - 0.5 * keras.backend.mean(
-            1 + z_log_sigma - keras.backend.square(z_mean) - keras.backend.exp(
-                z_log_sigma), axis=-1)
-        return xent_loss + kl_loss
-
-    auto.compile(optimizer='adam', loss=vae_loss)
+    inputs = encoder_inputs
+    auto = keras.Model(inputs=inputs, outputs=decoder(encoder(inputs)))
+    auto.compile(optimizer='adam',
+                 loss='binary_crossentropy')
 
     return encoder, decoder, auto
