@@ -1,47 +1,83 @@
 #!/usr/bin/env python3
-"""Auto Encoder"""
+"""variational autoencoder"""
 import tensorflow.keras as keras
 
 
 def autoencoder(input_dims, hidden_layers, latent_dims):
-    """creates a variational autoencoder"""
+    """The encoder"""
+    # encoder below
+    inputs = keras.Input(shape=(input_dims,))
+
+    enc = inputs
+
+    for layer_dims in hidden_layers:
+        enc = keras.layers.Dense(units=layer_dims, activation="relu")(enc)
+
+    mean = keras.layers.Dense(units=latent_dims)(enc)
+    log_sigma = keras.layers.Dense(units=latent_dims)(enc)
+
     def sampling(args):
-        mean, log = args
-        epsilon = keras.backend.random_normal(
-            shape=(keras.backend.shape(mean)[0], latent_dims),
-            mean=0,
-            stddev=1
-        )
-        return mean + keras.backend.exp(log / 2) * epsilon
+        """the sampling function"""
+        mean, log_sigma = args
 
-    input = keras.Input(shape=(input_dims,))
-    encode = keras.layers.Dense(hidden_layers[0], activation='relu')(input)
-    for dim in hidden_layers[1:]:
-        encode = keras.layers.Dense(dim, activation='relu')(encode)
-    encode_mean = keras.layers.Dense(latent_dims)(encode)
-    encode_log = keras.layers.Dense(latent_dims)(encode)
-    encoding = keras.layers.Lambda(sampling)([encode_mean, encode_log])
-    encoder = keras.Model(input, [encode_mean, encode_log, encoding])
+        epsilon = keras.backend.random_normal(shape=(keras.backend
+                                                     .shape(mean)[0],
+                                                     latent_dims),
+                                              mean=0, stddev=0.1)
 
-    input2 = keras.Input(shape=(latent_dims,))
-    decode = keras.layers.Dense(hidden_layers[-1], activation='relu')(input2)
-    for dim in hidden_layers[-2::-1]:
-        decode = keras.layers.Dense(dim, activation='relu')(decode)
-    decode = keras.layers.Dense(input_dims, activation='sigmoid')(decode)
-    decoder = keras.Model(input2, decode)
+        return mean + keras.backend.exp(log_sigma) * epsilon
 
-    auto = keras.Model(input, decoder(encoder(input)[-1]))
+    z = keras.layers.Lambda(sampling, output_shape=(latent_dims,)
+                            )([mean, log_sigma])
 
-    def vae_loss(inputs, outputs):
-        r_loss = keras.losses.binary_crossentropy(inputs, outputs)
-        r_loss *= input_dims
-        k_exp = keras.backend.exp(encode_log)
-        k_square = keras.backend.square(encode_mean)
-        lat_loss = -0.5 * keras.backend.sum(1 + encode_log - k_exp
-                                            - k_square, axis=-1)
-        vae = keras.backend.mean(lat_loss + r_loss)
-        return vae
+    # decoder below
+    dec_input = keras.Input(shape=(latent_dims,))
+    dec = dec_input
 
-    auto.compile(loss=vae_loss, optimizer='adam')
+    for layer_dims in reversed(hidden_layers):
+        dec = keras.layers.Dense(units=layer_dims, activation="relu")(dec)
+
+    dec_output_layer = keras.layers.Dense(units=input_dims,
+                                          activation="sigmoid")(dec)
+    # define encoder
+    encoder = keras.Model(inputs=inputs, outputs=[z, mean, log_sigma])
+    # define decoder
+
+    decoder = keras.Model(inputs=dec_input, outputs=dec_output_layer)
+    # define the autoencoder
+    outputs = decoder(encoder(inputs)[0])
+    auto = keras.Model(inputs=inputs, outputs=outputs)
+
+    def custom_loss(inputs, outputs, input_dims, log_sigma, mean):
+        """custom loss function"""
+
+        def loss(inputs, outputs):
+            """loss of the custom loss"""
+            rec_loss = keras.losses.binary_crossentropy(inputs, outputs)
+            rec_loss *= input_dims
+            kl_loss = (1 + log_sigma - keras.backend
+                       .square(mean) - keras.backend.exp(log_sigma))
+            kl_loss = keras.backend.sum(kl_loss, axis=-1)
+            kl_loss *= -0.5
+            vae_loss = keras.backend.mean(rec_loss + kl_loss)
+            return vae_loss
+        return loss
+
+    opt = keras.optimizers.Adam()
+
+    loss = "binary_crossentropy"
+
+    encoder.compile(loss=loss, optimizer=opt)
+    decoder.compile(loss=loss, optimizer=opt)
+    auto.compile(loss=custom_loss(inputs,
+                                  outputs,
+                                  input_dims,
+                                  log_sigma,
+                                  mean),
+                 optimizer=opt)
+
+    # encoder.summary()
+    # decoder.summary()
+    # auto.summary()
 
     return encoder, decoder, auto
